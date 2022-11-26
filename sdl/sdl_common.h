@@ -24,7 +24,8 @@ extern "C" {
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
 #include "lvgl.h"
 #else
-#include "lvgl/lvgl.h"
+//DC #include "lvgl/lvgl.h"
+#include "../../lvgl/lvgl.h"
 #endif
 
 #if USE_SDL || USE_SDL_GPU
