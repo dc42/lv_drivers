@@ -39,9 +39,6 @@
 /*********************
  *      DEFINES
  *********************/
-
-#define BYTES_PER_PIXEL ((LV_COLOR_DEPTH + 7) / 8)
-
 #if LV_WAYLAND_CLIENT_SIDE_DECORATIONS
 #define TITLE_BAR_HEIGHT 24
 #define BORDER_SIZE 2
@@ -51,7 +48,7 @@
 #endif
 
 #ifndef LV_WAYLAND_CYCLE_PERIOD
-#define LV_WAYLAND_CYCLE_PERIOD LV_MIN(LV_DISP_DEF_REFR_PERIOD,1)
+#define LV_WAYLAND_CYCLE_PERIOD LV_MIN(LV_DEF_REFR_PERIOD,1)
 #endif
 
 /**********************
@@ -232,6 +229,7 @@ struct window
 
     int width;
     int height;
+    int bits_per_pixel;
 
     bool resize_pending;
     int resize_width;
@@ -297,6 +295,38 @@ static void shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
     default:
         break;
     }
+}
+
+static int get_shm_format_bits_per_pixel(uint32_t format)
+{
+    int bits_per_pixel = 0;
+    switch (format)
+    {
+#if (LV_COLOR_DEPTH == 32)
+    case WL_SHM_FORMAT_ARGB8888:
+        bits_per_pixel = 32;
+        break;
+    case WL_SHM_FORMAT_XRGB8888:
+        bits_per_pixel = 32;
+        break;
+#elif (LV_COLOR_DEPTH == 16)
+    case WL_SHM_FORMAT_RGB565:
+        bits_per_pixel = 16;
+        break;
+#elif (LV_COLOR_DEPTH == 8)
+    case WL_SHM_FORMAT_RGB332:
+        bits_per_pixel = 8;
+        break;
+#elif (LV_COLOR_DEPTH == 1)
+    case WL_SHM_FORMAT_RGB332:
+        bits_per_pixel = 8;
+        break;
+#endif
+    default:
+        break;
+    }
+
+    return bits_per_pixel;
 }
 
 static const struct wl_shm_listener shm_listener = {
@@ -1225,7 +1255,7 @@ static bool initialize_allocator(struct buffer_allocator *allocator, const char 
     char *name;
 
     // Create file for shared memory allocation
-    name = lv_mem_alloc(strlen(dir) + sizeof(template));
+    name = lv_malloc(strlen(dir) + sizeof(template));
     LV_ASSERT_MSG(name, "cannot allocate memory for name");
     if (!name)
     {
@@ -1238,7 +1268,7 @@ static bool initialize_allocator(struct buffer_allocator *allocator, const char 
     allocator->shm_mem_fd = mkstemp(name);
 
     unlink(name);
-    lv_mem_free(name);
+    lv_free(name);
 
     LV_ASSERT_MSG((allocator->shm_mem_fd >= 0), "cannot create tmpfile");
     if (allocator->shm_mem_fd < 0)
@@ -1275,7 +1305,9 @@ static bool initialize_buffer(struct window *window, struct buffer_hdl *buffer_h
     int ret;
     long sz = sysconf(_SC_PAGESIZE);
 
-    buffer_hdl->size = (((width * height * BYTES_PER_PIXEL) + sz - 1) / sz) * sz;
+    window->bits_per_pixel = get_shm_format_bits_per_pixel(app->format);
+
+    buffer_hdl->size = (((width * height * window->bits_per_pixel / 8) + sz - 1) / sz) * sz;
 
     LV_LOG_TRACE("initializing buffer %dx%d (alloc size: %d)",
                  width, height, buffer_hdl->size);
@@ -1335,7 +1367,7 @@ static bool initialize_buffer(struct window *window, struct buffer_hdl *buffer_h
     buffer_hdl->wl_buffer = wl_shm_pool_create_buffer(allocator->shm_pool,
                                                       allocator->shm_mem_size - allocator->shm_file_free_size,
                                                       width, height,
-                                                      width * BYTES_PER_PIXEL,
+                                                      width * window->bits_per_pixel / 8,
                                                       app->format);
     if (!buffer_hdl->wl_buffer)
     {
@@ -1348,7 +1380,7 @@ static bool initialize_buffer(struct window *window, struct buffer_hdl *buffer_h
     allocator->shm_mem_size += allocated_size;
     allocator->shm_file_free_size = LV_MAX(0, (allocator->shm_file_free_size - buffer_hdl->size));
 
-    lv_memset_00(buffer_hdl->base, buffer_hdl->size);
+    lv_memset(buffer_hdl->base, 0x00, buffer_hdl->size);
 
     return true;
 
@@ -1389,7 +1421,7 @@ static struct graphic_object * create_graphic_obj(struct application *app, struc
 {
     struct graphic_object *obj;
 
-    obj = lv_mem_alloc(sizeof(*obj));
+    obj = lv_malloc(sizeof(*obj));
     LV_ASSERT_MALLOC(obj);
     if (!obj)
     {
@@ -1417,7 +1449,7 @@ err_destroy_surface:
     wl_surface_destroy(obj->surface);
 
 err_free:
-    lv_mem_free(obj);
+    lv_free(obj);
 
 err_out:
     return NULL;
@@ -1432,7 +1464,7 @@ static void destroy_graphic_obj(struct graphic_object * obj)
 
     wl_surface_destroy(obj->surface);
 
-    lv_mem_free(obj);
+    lv_free(obj);
 }
 
 #if LV_WAYLAND_CLIENT_SIDE_DECORATIONS
@@ -1874,7 +1906,7 @@ err_deinit_allocator:
 
 err_free_window:
     _lv_ll_remove(&app->window_ll, window);
-    lv_mem_free(window);
+    lv_free(window);
     return NULL;
 }
 
@@ -1956,31 +1988,46 @@ static void _lv_wayland_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv
         lv_disp_flush_ready(disp_drv);
         return;
     }
-
-    int32_t x;
-    int32_t y;
-
-    for (y = area->y1; y <= area->y2 && y < disp_drv->ver_res; y++)
+    
+    if (LV_COLOR_DEPTH == window->bits_per_pixel && LV_COLOR_DEPTH != 1 && LV_COLOR_DEPTH != 8)
     {
-        for (x = area->x1; x <= area->x2 && x < disp_drv->hor_res; x++)
+        int32_t bytes_pre_pixel = window->bits_per_pixel / 8;
+        int32_t x1 = area->x1, x2 = area->x2 <= disp_drv->hor_res - 1 ? area->x2 : disp_drv->hor_res - 1;
+        int32_t y1 = area->y1, y2 = area->y2 <= disp_drv->ver_res - 1 ? area->y2 : disp_drv->ver_res - 1;
+        int32_t act_w = x2 - x1 + 1;
+
+        for (int y = y1; y <= y2; y++)
         {
-            int offset = (y * disp_drv->hor_res) + x;
+            lv_memcpy((uint8_t *)buffer->base + ((y * disp_drv->hor_res + x1) * bytes_pre_pixel), color_p, act_w * bytes_pre_pixel);
+            color_p += act_w;
+        }
+    }
+    else
+    {
+        int32_t x;
+        int32_t y;
+        for (y = area->y1; y <= area->y2 && y < disp_drv->ver_res; y++)
+        {
+            for (x = area->x1; x <= area->x2 && x < disp_drv->hor_res; x++)
+            {
+                int offset = (y * disp_drv->hor_res) + x;
 #if (LV_COLOR_DEPTH == 32)
-            uint32_t * const buf = (uint32_t *)buffer->base + offset;
-            *buf = color_p->full;
+                uint32_t * const buf = (uint32_t *)buffer->base + offset;
+                *buf = color_p->full;
 #elif (LV_COLOR_DEPTH == 16)
-            uint16_t * const buf = (uint16_t *)buffer->base + offset;
-            *buf = color_p->full;
+                uint16_t * const buf = (uint16_t *)buffer->base + offset;
+                *buf = color_p->full;
 #elif (LV_COLOR_DEPTH == 8)
-            uint8_t * const buf = (uint8_t *)buffer->base + offset;
-            *buf = color_p->full;
+                uint8_t * const buf = (uint8_t *)buffer->base + offset;
+                *buf = color_p->full;
 #elif (LV_COLOR_DEPTH == 1)
-            uint8_t * const buf = (uint8_t *)buffer->base + offset;
-            *buf = ((0x07 * color_p->ch.red)   << 5) |
-                   ((0x07 * color_p->ch.green) << 2) |
-                   ((0x03 * color_p->ch.blue)  << 0);
+                uint8_t * const buf = (uint8_t *)buffer->base + offset;
+                *buf = ((0x07 * color_p->ch.red)   << 5) |
+                    ((0x07 * color_p->ch.green) << 2) |
+                    ((0x03 * color_p->ch.blue)  << 0);
 #endif
-            color_p++;
+                color_p++;
+            }
         }
     }
 
@@ -2327,7 +2374,7 @@ lv_disp_t * lv_wayland_create_window(lv_coord_t hor_res, lv_coord_t ver_res, cha
     window->close_cb = close_cb;
 
     /* Initialize draw buffer */
-    buf1 = lv_mem_alloc(hor_res * ver_res * sizeof(lv_color_t));
+    buf1 = lv_malloc(hor_res * ver_res * sizeof(lv_color_t));
     if (!buf1)
     {
         LV_LOG_ERROR("failed to allocate draw buffer");
