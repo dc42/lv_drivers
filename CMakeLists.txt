@@ -23,6 +23,16 @@ target_include_directories(lv_drivers SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 #target_link_libraries(lv_drivers PUBLIC lvgl ${PKG_WAYLAND_LIBRARIES})
 target_link_libraries(lv_drivers PUBLIC lvgl)
 
+target_compile_options(lv_drivers PUBLIC
+  -mcpu=cortex-m0plus -mthumb -nostdlib
+  -fno-exceptions
+  -Os
+  -ffunction-sections
+  -fdata-sections
+  $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>
+  $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
+  )
+
 if("${LIB_INSTALL_DIR}" STREQUAL "")
   set(LIB_INSTALL_DIR "lib")
 endif()
