@@ -59,22 +59,21 @@ void ssd1963_init(void)
 
 
     ssd1963_cmd(0x00E2);    //PLL multiplier, set PLL clock to 120M
-    ssd1963_data(0x0023);   //N=0x36 for 6.5M, 0x23 for 10M crystal
+    ssd1963_data(0x001E);   //N=0x36 for 6.5M, 0x23 for 10M crystal
     ssd1963_data(0x0002);
-    ssd1963_data(0x0004);
+    ssd1963_data(0x0054);
     ssd1963_cmd(0x00E0);    // PLL enable
     ssd1963_data(0x0001);
-    LV_DRV_DELAY_MS(1);
+    LV_DRV_DELAY_MS(10);
     ssd1963_cmd(0x00E0);
     ssd1963_data(0x0003);   // now, use PLL output as system clock
-    LV_DRV_DELAY_MS(1);
+    LV_DRV_DELAY_MS(10);
     ssd1963_cmd(0x0001);    // software reset
-    LV_DRV_DELAY_MS(1);
+    LV_DRV_DELAY_MS(100);
     ssd1963_cmd(0x00E6);    //PLL setting for PCLK, depends on resolution
-
-    ssd1963_data(0x0001);  //HX8257C
-    ssd1963_data(0x0033);  //HX8257C
-    ssd1963_data(0x0033);  //HX8257C
+    ssd1963_data(0x0003);  //HX8257C
+    ssd1963_data(0x00FF);  //HX8257C
+    ssd1963_data(0x00FF);  //HX8257C
 
 
     ssd1963_cmd(0x00B0);    //LCD SPECIFICATION
